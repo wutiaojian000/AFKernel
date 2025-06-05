@@ -2,7 +2,8 @@
 %define ERROR_CODE nop  ;相关异常中CPU压入了异常码，这里不做操作
 %define ZERO push 0     ;相关异常中CPU没有压入异常码，为了同一栈中格式需要压入0
 
-extern  put_str;
+extern  put_str
+extern  idt_table
 
 section .data
 intr_str db "interrupt occur!\n", 0xa, 0
@@ -13,22 +14,40 @@ intr_entry_table:   ;中断服务例程入口地址数组，注意一下数据�
 section .text
 intr%1entry:
     %2
-    push intr_str
-    call put_str
-    add esp, 4
+    ;保存上下文环境
+    push ds
+    push ss
+    push gs
+    push es
+    pushad
 
     ;如果是从片上发的中断，除了向从片上发EOI，还要向主片上发EOI
     mov al, 0x20
     out 0xa0, al
     out 0x20, al
 
-    add esp, 4  ;跨过error code
-    iret        ;从中断返回，32位下等同于iretd
+    push %1 ;压入中断号
+    call [idt_table + (%1 * 4)]
+
+    jmp intr_exit
 
 section .data
     dd intr%1entry  ;存放各个中断服务程序的地址
 
 %endmacro
+
+section .text
+global intr_exit
+intr_exit:
+    ;恢复上下文
+    add esp, 4
+    popad
+    pop es
+    pop gs
+    pop ss
+    pop ds
+    add esp, 4
+    iretd
 
 VECTOR 0x00, ZERO
 VECTOR 0x01, ZERO
